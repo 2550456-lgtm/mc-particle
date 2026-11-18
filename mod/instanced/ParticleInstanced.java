@@ -43,6 +43,14 @@ public class ParticleInstanced implements ClientModInitializer {
 
     // ---------------------------------------------------------------- 初始化
     private static void init() {
+        String ver = GL11.glGetString(GL11.GL_VERSION);
+        LOG.info("[pws-inst] GL_VERSION = " + ver);
+        boolean ok = ver != null && (ver.startsWith("3.3") || ver.startsWith("3.4") || ver.startsWith("4."));
+        if (!ok) {
+            failed = true;
+            LOG.warn("[pws-inst] OpenGL < 3.3, instancing unavailable. Skipping.");
+            return;
+        }
         int vs = compile(GL20.GL_VERTEX_SHADER, VSH);
         int fs = compile(GL20.GL_FRAGMENT_SHADER, FSH);
         program = GL20.glCreateProgram();
@@ -55,20 +63,39 @@ public class ParticleInstanced implements ClientModInitializer {
         GL20.glDeleteShader(vs);
         GL20.glDeleteShader(fs);
 
-        // 里程碑 2：先画固定的 10,000 个点（正方形网格，玩家前方）
-        int n = 100 * 100;
-        ByteBuffer buf = ByteBuffer.allocateDirect(n * 20).order(ByteOrder.nativeOrder());
+        // M3：从 particleImages/still.png 生成实例数据
+        int cols = 1280;
+        java.awt.image.BufferedImage im = null;
+        try {
+            java.io.File f = new java.io.File("particleImages/still.png");
+            im = javax.imageio.ImageIO.read(f);
+            if (im == null) throw new java.io.IOException("not an image");
+            LOG.info("[pws-inst] image " + im.getWidth() + "x" + im.getHeight());
+        } catch (Throwable t) {
+            throw new IllegalStateException("cannot load still.png: " + t);
+        }
+        int rows = Math.max(1, Math.round(cols * (float) im.getHeight() / im.getWidth()));
+        int n = cols * rows;
+        float step = 25.6f / cols;
+        float halfW = 25.6f / 2f;
+        float halfH = step * rows / 2f;
+        float dot = step * 1.4f;
+
+        ByteBuffer buf = ByteBuffer.allocateDirect(n * 32).order(ByteOrder.nativeOrder());
         FloatBuffer fb = buf.asFloatBuffer();
-        for (int y = 0; y < 100; y++) {
-            for (int x = 0; x < 100; x++) {
-                fb.put(-5.0f + x * 0.1f);          // px
-                fb.put(1.0f + y * 0.1f);           // py
-                fb.put(-18.0f);                    // pz
-                fb.put((float) x / 100f);          // r
-                fb.put((float) y / 100f);          // g
-                fb.put(0.8f);                      // b
-                fb.put(1.0f);                      // a
-                fb.put(0.12f);                     // size
+        int written = 0;
+        for (int y = 0; y < rows; y++) {
+            for (int x = 0; x < cols; x++) {
+                int argb = im.getRGB(x * im.getWidth() / cols, y * im.getHeight() / rows);
+                int a = (argb >>> 24) & 0xFF;
+                int r = (argb >> 16) & 0xFF, g = (argb >> 8) & 0xFF, b = argb & 0xFF;
+                if (a < 8) continue;
+                fb.put(-halfW + x * step);      // px
+                fb.put(halfH - y * step);       // py
+                fb.put(-18.0f);                 // pz
+                fb.put(r / 255f); fb.put(g / 255f); fb.put(b / 255f); fb.put(1f);
+                fb.put(dot);                    // size
+                written++;
             }
         }
         fb.flip();
@@ -79,7 +106,7 @@ public class ParticleInstanced implements ClientModInitializer {
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, buf, GL15.GL_STATIC_DRAW);
 
-        int stride = 20;
+        int stride = 32;
         GL20.glEnableVertexAttribArray(0);
         GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, stride, 0L);
         GL33.glVertexAttribDivisor(0, 1);
@@ -87,12 +114,12 @@ public class ParticleInstanced implements ClientModInitializer {
         GL20.glVertexAttribPointer(1, 4, GL11.GL_FLOAT, false, stride, 12L);
         GL33.glVertexAttribDivisor(1, 1);
         GL20.glEnableVertexAttribArray(2);
-        GL20.glVertexAttribPointer(2, 1, GL11.GL_FLOAT, false, stride, 16L);
+        GL20.glVertexAttribPointer(2, 1, GL11.GL_FLOAT, false, stride, 28L);
         GL33.glVertexAttribDivisor(2, 1);
 
         GL30.glBindVertexArray(0);
-        instanceCount = n;
-        LOG.info("[pws-inst] initialized with " + n + " instances");
+        instanceCount = written;
+        LOG.info("[pws-inst] initialized with " + written + " instances");
     }
 
     private static int compile(int type, String src) {
