@@ -67,7 +67,29 @@ mc-particle/
 | `dust` 是圆点 | 形状由贴图决定，需替换 `generic_*` / `glow.png` |
 
 
+
+## 粒子数上限（10 万+ 的关键）
+
+模组默认只保留 **65,536** 个粒子，超出的被丢弃 —— 表现是**图片被压扁成一条横带**，很容易误判成"长宽比算错"。
+
+改 `config/particleex.json`（**必须重启游戏**才生效）：
+
+```json
+{
+  "maxParticleCount": 300000,
+  "ParallelParticleUpdate": true
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `maxParticleCount` | 粒子队列上限。要 23 万粒子就写 30 万 |
+| `ParallelParticleUpdate` | 每帧 tick 用并行流，粒子多时减少卡顿 |
+
+改完重启，`/function vid:gal` 之类的大图才会完整显示。
+
 ## 数据包的两个坑（1.21 实测）
+
 
 | 坑 | 现象 | 正确做法 |
 |---|---|---|
