@@ -45,7 +45,7 @@ mc-particle/
 /particleex image minecraft:glow ~ ~2 ~-18 chibi.png 0.58 0 0 0 not 16 0 0 0 -1
 ```
 
-三条分别：清场 / 铺隐形光源 / 画墙。装数据包后只要 `/function vid:draw` 一条。
+三条分别：清场 / 铺隐形光源 / 画墙。装数据包后只要 `/function vid:wall` 一条。
 
 看不到墙就转身朝北 —— 它在 `-Z` 方向 18 格。
 

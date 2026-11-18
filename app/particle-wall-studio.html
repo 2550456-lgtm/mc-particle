@@ -92,7 +92,7 @@
       预览是模拟：黑色背景 + 菱形粒子。<br>
       亮度对应游戏里的光照，疏密对应 <code>dpb</code>（每方块粒子数）。<br>
       数据包里的函数只装一条 <code>particleex</code> 命令，进游戏敲
-      <code>/function vid:draw</code> 即可。
+      <code>/function vid:wall</code> 即可。
     </p>
   </aside>
 
@@ -369,14 +369,14 @@
     // 数据包：pack.mcmeta + 一个函数（函数体内直接是 particleex 命令）
     const files = [
       { name: 'pack.mcmeta', data: enc.encode(meta) },
-      { name: 'data/vid/function/draw.mcfunction', data: enc.encode(fullScript() + "\n") },
+      { name: 'data/vid/function/wall.mcfunction', data: enc.encode(fullScript() + "\n") },
       { name: 'data/vid/function/help.mcfunction', data: enc.encode(
-          "tellraw @s {\"text\":\"用法：/function vid:draw  —— 在你正前方画一面粒子墙\",\"color\":\"green\"}\n") }
+          "tellraw @s {\"text\":\"用法：/function vid:wall  —— 在你正前方画一面粒子墙\",\"color\":\"green\"}\n") }
     ];
     const blob = new Blob([zip(files)], { type: 'application/zip' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    setTimeout(() => alert('数据包已下载。\n\n① 放进存档 datapacks\\\n② /reload\n③ /function vid:draw  ← 就这一条，自动清场+铺光+画墙'), 300);
+    setTimeout(() => alert('数据包已下载。\n\n① 放进存档 datapacks\\\n② /reload\n③ /function vid:wall  ← 就这一条，自动清场+铺光+画墙'), 300);
     a.download = 'particle-wall-datapack.zip';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 3000);
