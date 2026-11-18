@@ -60,6 +60,8 @@
       <div class="row">
         <button id="btnPickDir" style="width:auto;flex:1">选择 particleImages 文件夹</button>
       </div>
+      <label style="margin-top:10px">素材文件夹（可选，随便哪个都行）</label>
+      <input type="text" id="libDir" placeholder="D:\素材\粒子图">
       <div class="hint" id="derivedPaths"></div>
       <div class="hint" id="dirStatus">未授权</div>
     </div>
@@ -75,7 +77,7 @@
         <input type="text" id="fname" value="0.png">
         <button id="btnNext">+1</button>
       </div>
-      <button class="wide" id="btnSaveImg" style="margin-top:8px">保存图片到已授权文件夹</button>
+      <button class="wide" id="btnSaveImg" style="margin-top:8px">保存图片</button>
       <div class="hint" id="nameHint"></div>
     </div>
 
@@ -112,17 +114,19 @@
   const $ = id => document.getElementById(id);
   const cv = $('cv'), ctx = cv.getContext('2d');
 
-  const state = { bright: 1, grid: 411, dpb: 16, zoom: 1, name: '0.png', worldPath: '' };
+  const state = { bright: 1, grid: 411, dpb: 16, zoom: 1, name: '0.png', worldPath: '', libDir: '' };
   let img = null, currentFile = null;
   let gridW = 0, gridH = 0, cellColors = null;
   let dirHandle = null;
+  let serverInfo = null;
+  const HAS_API = location.protocol === 'http:' || location.protocol === 'https:';
 
   // ---------------------------------------------------------------- 持久化
   function saveSettings() {
     try {
       localStorage.setItem('pws', JSON.stringify({
         bright: state.bright, grid: state.grid, dpb: state.dpb,
-        name: state.name, worldPath: state.worldPath
+        name: state.name, worldPath: state.worldPath, libDir: state.libDir
       }));
     } catch (e) {}
   }
@@ -173,6 +177,13 @@
 
   function renderDerived() {
     const el = $('derivedPaths');
+    if (serverInfo) {
+      el.className = 'hint ok';
+      el.innerHTML = '图片目录（已定位）：<br><b>' + serverInfo.images + '</b>' +
+        (serverInfo.imagesExists ? '' : ' <span style="color:var(--warn)">（尚不存在，保存时自动创建）</span>') +
+        '<br>数据包目录：<br><b>' + (serverInfo.datapacks || '—') + '</b>';
+      return;
+    }
     const d = derived();
     if (!d) {
       el.className = 'hint warn';
@@ -183,6 +194,46 @@
     el.innerHTML =
       '图片应放：<br><b>' + d.images + '</b><br>' +
       '数据包应放：<br><b>' + d.datapacks + '</b>';
+  }
+
+  // ---------------------------------------------------------------- 本地服务（优先）
+  async function apiDetect() {
+    if (!HAS_API) return;
+    try {
+      const r = await fetch('/api/detect?world=' + encodeURIComponent(state.worldPath || ''));
+      const j = await r.json();
+      serverInfo = j.ok ? j : null;
+    } catch (e) { serverInfo = null; }
+    renderDerived();
+    if (serverInfo) await apiSyncName();
+  }
+
+  async function apiList() {
+    if (!HAS_API) return null;
+    try {
+      const r = await fetch('/api/list?world=' + encodeURIComponent(state.worldPath || ''));
+      const j = await r.json();
+      return j.ok ? j.images : null;
+    } catch (e) { return null; }
+  }
+
+  // 文件名已存在就自动跳到下一个空号
+  async function apiSyncName() {
+    const names = await apiList();
+    if (!names) return;
+    const set = new Set(names.map(n => n.toLowerCase()));
+    let n = (function () {
+      const m = /^(\d+)(\.[A-Za-z0-9]+)$/.exec(state.name);
+      return m ? parseInt(m[1], 10) : 0;
+    })();
+    const ext = (/\.[A-Za-z0-9]+$/.exec(state.name) || ['.png'])[0];
+    let guard = 0;
+    while (set.has((n + ext).toLowerCase()) && guard++ < 999) n++;
+    state.name = n + ext;
+    $('fname').value = state.name;
+    $('vName').textContent = state.name;
+    nameHint(); saveSettings();
+    setDirStatus('本地模式：已自动定位图片目录，共 ' + names.length + ' 张', 'ok');
   }
 
   // ---------------------------------------------------------------- 目录授权
@@ -228,6 +279,28 @@
 
   async function saveImage() {
     if (!currentFile) return alert('先在「图片」里选一张');
+    if (HAS_API && serverInfo) {
+      try {
+        const dataUrl = await new Promise((res, rej) => {
+          const fr = new FileReader();
+          fr.onload = () => res(fr.result); fr.onerror = () => rej(fr.error);
+          fr.readAsDataURL(currentFile);
+        });
+        const r = await fetch('/api/save', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ world: state.worldPath, name: state.name, data: dataUrl, library: state.libDir })
+        });
+        const j = await r.json();
+        if (!j.ok) return alert('保存失败：' + j.error);
+        $('btnSaveImg').textContent = '已写入 ' + state.name +
+          (state.libDir ? ' → 游戏目录 + 素材夹 ✓' : ' → 游戏目录 ✓');
+        setTimeout(() => $('btnSaveImg').textContent = '保存图片', 3500);
+        await apiSyncName();
+        return;
+      } catch (e) {
+        alert('本地服务调用失败，改用文件夹授权：' + e.message);
+      }
+    }
     if (!dirHandle) {
       const d = derived();
       return alert('先点「选择 particleImages 文件夹」授权一次。' +
@@ -505,6 +578,7 @@
     state.worldPath = e.target.value;
     renderDerived(); saveSettings();
   });
+  $('libDir').addEventListener('input', e => { state.libDir = e.target.value; saveSettings(); });
   $('btnPickDir').addEventListener('click', pickDir);
   $('btnSaveImg').addEventListener('click', saveImage);
 
@@ -519,10 +593,12 @@
   $('fname').value = state.name;
   $('vName').textContent = state.name;
   $('worldPath').value = state.worldPath || '';
+  $('libDir').value = state.libDir || '';
   renderDerived();
   nameHint();
   setZoom(state.zoom || 1);
   restoreDir();
+  apiDetect();
   render();
 })();
 </script>
