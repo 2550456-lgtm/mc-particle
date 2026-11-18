@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>粒子墙工作台</title>
+<style>
+  :root{
+    --bg:#0d0f12; --panel:#15181d; --line:#262b33;
+    --text:#e6e9ee; --muted:#8b95a4; --accent:#4ea1ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.5 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  header{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line)}
+  header h1{font-size:16px;margin:0;font-weight:600}
+  header .sub{color:var(--muted);font-size:12px}
+  .layout{display:grid;grid-template-columns:300px 1fr;height:calc(100vh - 57px)}
+  aside{padding:18px;border-right:1px solid var(--line);overflow:auto;background:var(--panel)}
+  main{overflow:auto;padding:20px;min-width:0}
+  #stage{display:flex;align-items:center;justify-content:center;min-height:100%}
+  .field{margin-bottom:18px}
+  .field label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+  .field label b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  input[type=file],input[type=text]{width:100%;background:#0b0d10;border:1px solid var(--line);
+       border-radius:6px;color:var(--text);padding:7px 9px;font-size:13px}
+  button{width:100%;padding:9px 12px;margin-bottom:9px;border-radius:6px;cursor:pointer;
+       border:1px solid var(--line);background:#1c2027;color:var(--text);font-size:13px}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#04121f;font-weight:600}
+  .stat{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);
+        padding:5px 0;border-bottom:1px dashed var(--line)}
+  .stat b{color:var(--text);font-variant-numeric:tabular-nums}
+  canvas{background:#000;border-radius:4px;max-width:100%;
+         box-shadow:0 0 0 1px var(--line),0 12px 40px rgba(0,0,0,.6);image-rendering:pixelated}
+  .hint{font-size:11px;color:var(--muted);line-height:1.6;margin-top:10px}
+  .row{display:flex;gap:8px}
+  .row button{margin-bottom:9px}
+</style>
+</head>
+<body>
+<header>
+  <h1>粒子墙工作台</h1>
+  <span class="sub">图片 → 粒子点阵预览 → 数据包</span>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="field">
+      <label>图片</label>
+      <input type="file" id="file" accept="image/*">
+    </div>
+
+    <div class="field">
+      <label>亮度 <b id="vBright">1.00</b></label>
+      <input type="range" id="bright" min="0.2" max="2" step="0.05" value="1">
+    </div>
+
+    <div class="field">
+      <label>清晰度（横向点数） <b id="vGrid">208</b></label>
+      <input type="range" id="grid" min="32" max="480" step="8" value="208">
+    </div>
+
+    <div class="field">
+      <label>疏密（每格几个粒子） <b id="vDpb">8</b></label>
+      <input type="range" id="dpb" min="2" max="24" step="1" value="8">
+    </div>
+
+    <div class="field">
+      <label>放大预览 <b id="vZoom">1.0×</b></label>
+      <input type="range" id="zoom" min="1" max="12" step="0.5" value="1">
+    </div>
+
+    <div class="field">
+      <label>图片文件名（放进 particleImages）</label>
+      <input type="text" id="fname" value="image.png">
+    </div>
+
+    <div class="stat"><span>网格</span><b id="sGrid">—</b></div>
+    <div class="stat"><span>粒子数</span><b id="sCount">—</b></div>
+    <div class="stat"><span>墙宽</span><b id="sWall">—</b></div>
+
+    <div style="height:14px"></div>
+    <button class="primary" id="btnCmd">复制 /particleex 命令</button>
+    <button id="btnZip">下载数据包 (.zip)</button>
+    <button id="btnPng">导出预览图 (.png)</button>
+
+    <p class="hint">
+      预览是模拟：黑色背景 + 菱形粒子。<br>
+      亮度对应游戏里的光照，疏密对应 <code>dpb</code>（每方块粒子数）。<br>
+      数据包里的函数只装一条 <code>particleex</code> 命令，进游戏敲
+      <code>/function vid:draw</code> 即可。
+    </p>
+  </aside>
+
+  <main><div id="stage"><canvas id="cv" width="960" height="540"></canvas></div></main>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const cv = $('cv'), ctx = cv.getContext('2d');
+  let img = null, imgData = null, gridW = 0, gridH = 0;
+  let cellColors = null;          // Uint8ClampedArray gridW*gridH*3
+
+  const state = { bright: 1, grid: 208, dpb: 8, name: 'image.png', zoom: 1 };
+
+  // 放大预览：画布本身分辨率不变，只放大显示（像素级放大，看到的是真实的点阵）
+  function applyZoom() {
+    cv.style.maxWidth = 'none';
+    cv.style.width = (cv.width * state.zoom) + 'px';
+    cv.style.height = (cv.height * state.zoom) + 'px';
+  }
+  function setZoom(z) {
+    state.zoom = Math.min(12, Math.max(1, z));
+    $('zoom').value = state.zoom;
+    $('vZoom').textContent = state.zoom.toFixed(1) + '×';
+    applyZoom();
+  }
+
+  // ---------- 载入图片 ----------
+  $('file').addEventListener('change', e => {
+    const f = e.target.files[0]; if (!f) return;
+    state.name = f.name.replace(/\.[^.]+$/, '') + '.png';
+    $('fname').value = state.name;
+    const url = URL.createObjectURL(f);
+    const im = new Image();
+    im.onload = () => { img = im; sample(); render(); updateStats(); URL.revokeObjectURL(url); };
+    im.src = url;
+  });
+
+  // 把图片缩到网格尺寸，取每个格子的颜色
+  function sample() {
+    if (!img) return;
+    gridW = state.grid;
+    gridH = Math.max(1, Math.round(gridW * img.height / img.width));
+
+    // 画布尺寸跟随图片长宽比，绝不拉伸
+    const W = 960;
+    const H = Math.max(1, Math.round(W * img.height / img.width));
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    applyZoom();
+    const off = document.createElement('canvas');
+    off.width = gridW; off.height = gridH;
+    const octx = off.getContext('2d', { willReadFrequently: true });
+    octx.imageSmoothingEnabled = true;
+    octx.imageSmoothingQuality = 'high';
+    // 黑底，让透明区域变黑
+    octx.fillStyle = '#000'; octx.fillRect(0, 0, gridW, gridH);
+    octx.drawImage(img, 0, 0, gridW, gridH);
+    imgData = octx.getImageData(0, 0, gridW, gridH);
+    cellColors = imgData.data;
+  }
+
+  // ---------- 渲染预览 ----------
+  function render() {
+    const W = cv.width, H = cv.height;
+    const out = ctx.createImageData(W, H);
+    const px = out.data;
+    px.fill(0);                                   // 背景纯黑
+    for (let i = 3; i < px.length; i += 4) px[i] = 255;   // 不透明黑，导出 PNG 也是黑的
+    if (!cellColors) { ctx.putImageData(out, 0, 0); return; }
+
+    const cw = W / gridW, ch = H / gridH;
+    // 粒子直径（相对格子）：游戏里 sprite 约 0.1 格，间距 1/dpb 格
+    const ratio = Math.min(1.9, 0.1 * state.dpb);
+    const dotW = cw * ratio, dotH = ch * ratio;
+    const b = state.bright;
+
+    for (let y = 0; y < H; y++) {
+      const gy = Math.floor(y / ch); if (gy >= gridH) continue;
+      const v = (y - gy * ch - ch / 2) / (dotH / 2);
+      for (let x = 0; x < W; x++) {
+        const gx = Math.floor(x / cw); if (gx >= gridW) continue;
+        const u = (x - gx * cw - cw / 2) / (dotW / 2);
+        const d = Math.abs(u) + Math.abs(v);      // 菱形距离
+        if (d > 1) continue;
+        let a = Math.min(1, (1 - d) * 3.2);        // 边缘 1 像素抗锯齿
+        if (a <= 0) continue;
+        const si = (gy * gridW + gx) * 4;
+        const o = (y * W + x) * 4;
+        px[o]     = Math.min(255, cellColors[si]     * b * a);
+        px[o + 1] = Math.min(255, cellColors[si + 1] * b * a);
+        px[o + 2] = Math.min(255, cellColors[si + 2] * b * a);
+        px[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(out, 0, 0);
+  }
+
+  function updateStats() {
+    $('sGrid').textContent = cellColors ? `${gridW} × ${gridH}` : '—';
+    $('sCount').textContent = cellColors ? (gridW * gridH).toLocaleString() : '—';
+    const wall = (gridW / state.dpb).toFixed(1);
+    $('sWall').textContent = cellColors ? `${wall} 格` : '—';
+  }
+
+  // ---------- 交互 ----------
+  const bind = (id, key, fmt) => {
+    const el = $(id);
+    el.addEventListener('input', () => {
+      state[key] = parseFloat(el.value);
+      $(fmt.out).textContent = fmt.f(el.value);
+      if (key === 'grid' && img) sample();
+      render(); updateStats();
+    });
+  };
+  bind('bright', 'bright', { out: 'vBright', f: v => (+v).toFixed(2) });
+  bind('grid', 'grid', { out: 'vGrid', f: v => v });
+  bind('dpb', 'dpb', { out: 'vDpb', f: v => v });
+
+  $('fname').addEventListener('input', e => { state.name = e.target.value || 'image.png'; });
+
+  $('zoom').addEventListener('input', e => setZoom(parseFloat(e.target.value)));
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    setZoom(state.zoom + (e.deltaY < 0 ? 0.5 : -0.5));
+  }, { passive: false });
+
+  // ---------- 命令 ----------
+  function command() {
+    const scaling = (gridW / (img ? img.width : gridW)).toFixed(3);
+    return `/particleex image minecraft:glow ~ ~2 ~-18 ${state.name} ${scaling} 0 0 0 not ${state.dpb} 0 0 0 -1`;
+  }
+
+  $('btnCmd').addEventListener('click', async () => {
+    if (!img) return alert('先选一张图片');
+    const c = command();
+    try { await navigator.clipboard.writeText(c); $('btnCmd').textContent = '已复制 ✓'; }
+    catch { prompt('手动复制：', c); }
+    setTimeout(() => $('btnCmd').textContent = '复制 /particleex 命令', 1500);
+  });
+
+  // ---------- 预览图 ----------
+  $('btnPng').addEventListener('click', () => {
+    if (!img) return alert('先选一张图片');
+    cv.toBlob(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'particle-preview.png';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }, 'image/png');
+  });
+
+  // ---------- 极简 ZIP（store，无压缩）----------
+  const CRC_TABLE = (() => {
+    const t = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[i] = c >>> 0;
+    }
+    return t;
+  })();
+  function crc32(bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  function zip(files) {                       // files: [{name, data:Uint8Array}]
+    const enc = new TextEncoder();
+    const chunks = [], central = [];
+    let offset = 0;
+    const u16 = n => new Uint8Array([n & 255, (n >> 8) & 255]);
+    const u32 = n => new Uint8Array([n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255]);
+
+    for (const f of files) {
+      const nameBytes = enc.encode(f.name);
+      const crc = crc32(f.data);
+      const head = [u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0),
+        u32(crc), u32(f.data.length), u32(f.data.length), u16(nameBytes.length), u16(0)];
+      const local = concat([...head, nameBytes, f.data]);
+      chunks.push(local);
+      central.push(concat([u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0),
+        u32(crc), u32(f.data.length), u32(f.data.length),
+        u16(nameBytes.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), nameBytes]));
+      offset += local.length;
+    }
+    const centralBuf = concat(central);
+    const end = concat([u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length),
+      u32(centralBuf.length), u32(offset), u16(0)]);
+    return concat([...chunks, centralBuf, end]);
+  }
+  function concat(arrs) {
+    const n = arrs.reduce((s, a) => s + a.length, 0);
+    const out = new Uint8Array(n);
+    let p = 0;
+    for (const a of arrs) { out.set(a, p); p += a.length; }
+    return out;
+  }
+
+  $('btnZip').addEventListener('click', () => {
+    if (!img) return alert('先选一张图片');
+    const enc = new TextEncoder();
+    const meta = JSON.stringify({
+      pack: { pack_format: 48, description: "particle wall: " + state.name,
+              supported_formats: { min_inclusive: 48, max_inclusive: 99 } }
+    }, null, 2);
+    // 数据包：pack.mcmeta + 一个函数（函数体内直接是 particleex 命令）
+    const files = [
+      { name: 'pack.mcmeta', data: enc.encode(meta) },
+      { name: 'data/vid/function/draw.mcfunction', data: enc.encode(command() + "\n") },
+      { name: 'data/vid/function/help.mcfunction', data: enc.encode(
+          "tellraw @s {\"text\":\"用法：/function vid:draw  —— 在你正前方画一面粒子墙\",\"color\":\"green\"}\n") }
+    ];
+    const blob = new Blob([zip(files)], { type: 'application/zip' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'particle-wall-datapack.zip';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  });
+
+  // 初始空画布
+  render();
+  applyZoom();
+})();
+</script>
+</body>
+</html>

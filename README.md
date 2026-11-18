@@ -1,0 +1,77 @@
+# mc-particle
+
+把**图片 / 视频**变成 Minecraft 里的**粒子墙**。
+
+配套模组：[AnotherColorBlock (ParticleEx)](https://github.com/noone89A/AnotherColorBlock) · Fabric 1.21.1
+
+---
+
+## 目录
+
+```
+mc-particle/
+├─ app/particle-wall-studio.html   主工具（单文件网页，双击即用）
+└─ tools/                          生成器与辅助脚本（Python 3.10+，仅需 numpy）
+```
+
+## 主工具：粒子墙工作台
+
+浏览器打开 `app/particle-wall-studio.html`，无需安装、无需联网。
+
+![工作台](docs/screenshot.png)
+
+- 拖入图片 → 实时粒子点阵预览（纯黑背景，保持原图长宽比）
+- **亮度** 0.2–2.0：模拟游戏内光照
+- **清晰度** 32–480：横向粒子数，决定细节
+- **疏密** 2–24：每方块粒子数 `dpb`，越大越密、墙越小
+- **放大预览** 1–12×（滚轮也可）：像素级放大，检查菱形边缘和缝隙
+- 一键：复制 `/particleex` 命令 / 下载数据包 / 导出预览图（不透明黑底）
+
+## 游戏侧前置
+
+| 项 | 放到 |
+|---|---|
+| `AnotherColorBlock-*.jar` + `fabric-api-*.jar` | `.minecraft\versions\<版本>\mods\` |
+| 发光菱形贴图 `star_particles.zip` | 同目录 `resourcepacks\`（启用） |
+| 粒子图片 | 同目录 `particleImages\` |
+
+## 游戏内流程
+
+```mcfunction
+/particleex clearparticle
+/tp @s ~ ~ ~ 180 0
+/fill ~-14 ~-11 ~-19 ~14 ~12 ~-19 minecraft:light
+/particleex image minecraft:glow ~ ~2 ~-18 chibi.png 0.58 0 0 0 not 16 0 0 0 -1
+```
+
+## 参数含义（读模组源码确认）
+
+| 参数 | 含义 |
+|---|---|
+| `缩放` | 图片缩放倍数。`1.0` = 原图；粒子数 = (宽×缩放) × (高×缩放) |
+| `dpb` | 每方块粒子数。**越大越密、墙越小**；墙宽 = 图宽×缩放 ÷ dpb |
+| `age` | `-1` = 永久存在，不会淡出 |
+
+## 踩过的坑
+
+| 现象 | 原因 |
+|---|---|
+| 720p（`缩放 1.0`，92 万粒子）只渲染出一部分 | 触到模组内部上限，实际可用约 `缩放 0.58`（360p，15 万粒子） |
+| 粒子发暗 | 粒子亮度 = 所在位置光照等级；用 `minecraft:light` 隐形光源铺在墙后 |
+| `end_rod` 全是白的 | 它自己管颜色动画，模组染色只对 `SingleQuadParticle` 生效 |
+| `dust` 是圆点 | 形状由贴图决定，需替换 `generic_*` / `glow.png` |
+
+## tools/
+
+| 脚本 | 作用 |
+|---|---|
+| `image2wall.py` | 图片 → 数据包（原版 `particle` 命令，相对坐标） |
+| `mcvideo.py` | 视频 → 数据包 / 帧数据（含调色板量化、矩形合并） |
+| `make_glow16.py` | 生成 16×16 发光菱形贴图资源包 |
+| `make_testcard.py` | 生成 1280×720 测试卡 |
+| `nbtlib.py` | 手写的最小 NBT 编解码器 |
+| `pack_datapack.py` | 打 zip（强制正斜杠，规避 `Compress-Archive` 的坑） |
+
+## License
+
+工具代码 MIT。模组本身为 GPL-3.0，本仓库不含其代码。
