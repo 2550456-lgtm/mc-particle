@@ -201,7 +201,11 @@
       const h = await window.showDirectoryPicker({ mode: 'readwrite', id: 'pws-dir' });
       dirHandle = h;
       await idb.set('dir', h);
-      setDirStatus('已授权：' + h.name + '（保存图片会直接写进去）', 'ok');
+      if (h.name !== 'particleImages') {
+        setDirStatus('⚠ 你选的是「' + h.name + '」，不是 particleImages —— 游戏读不到！请重新选择', 'warn');
+      } else {
+        setDirStatus('已授权：particleImages ✓（保存图片会直接写进去）', 'ok');
+      }
     } catch (e) {
       setDirStatus('未授权：' + e.message, 'warn');
     }
@@ -213,7 +217,9 @@
       if (!h) return;
       dirHandle = h;
       if (await h.queryPermission({ mode: 'readwrite' }) === 'granted') {
-        setDirStatus('已记住：' + h.name, 'ok');
+        setDirStatus(h.name === 'particleImages'
+          ? '已记住：particleImages ✓'
+          : '⚠ 已记住「' + h.name + '」，这不是 particleImages', h.name === 'particleImages' ? 'ok' : 'warn');
       } else {
         setDirStatus('已记住 ' + h.name + '，保存时会请求权限', '');
       }
@@ -241,7 +247,10 @@
       const w = await fh.createWritable();
       await w.write(currentFile);
       await w.close();
-      $('btnSaveImg').textContent = '已写入 ' + name + ' ✓';
+      const folder = dirHandle.name === 'particleImages'
+        ? 'particleImages ✓'
+        : dirHandle.name + ' ⚠（不是 particleImages！）';
+      $('btnSaveImg').textContent = '已写入 ' + name + ' → ' + folder;
       setTimeout(() => $('btnSaveImg').textContent = '保存图片到已授权文件夹', 3000);
     } catch (e) {
       alert('写入失败：' + e.message);
