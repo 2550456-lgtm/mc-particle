@@ -1,0 +1,15 @@
+def LOCAL = "file:///D:/games/PCL/.minecraft/libraries"
+def ALIYUN = "https://maven.aliyun.com/repository/public"
+
+allprojects {
+    buildscript {
+        repositories {
+            maven { url = LOCAL; metadataSources { artifact() } }
+            maven { url = ALIYUN }
+        }
+    }
+    repositories {
+        maven { url = LOCAL; metadataSources { artifact() } }
+        maven { url = ALIYUN }
+    }
+}
