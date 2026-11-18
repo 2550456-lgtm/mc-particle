@@ -1,0 +1,18 @@
+﻿{
+  "schemaVersion": 1,
+  "id": "particle-instanced",
+  "version": "0.1.0",
+  "name": "Particle Instanced",
+  "description": "把静态粒子墙用 GPU instancing 一次画完",
+  "authors": ["pws"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.pws.instanced.ParticleInstanced"]
+  },
+  "depends": {
+    "fabricloader": ">=0.15",
+    "minecraft": "~1.21.1",
+    "java": ">=21"
+  }
+}
