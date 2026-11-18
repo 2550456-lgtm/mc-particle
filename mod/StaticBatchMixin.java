@@ -39,10 +39,30 @@ public abstract class StaticBatchMixin {
    @Unique private static boolean pwsBroken = false;
    @Unique private static boolean pwsLogged = false;
 
+   @Unique
+   private static Boolean pwsEnabledCache;
+
+   /// 开关：config/pws-batch.enabled 存在则启用静态批次。
+   @Unique
+   private static boolean pwsEnabled() {
+      if (pwsEnabledCache == null) {
+         boolean on = false;
+         try {
+            on = java.nio.file.Files.exists(
+                  net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("pws-batch.enabled"));
+         } catch (Throwable ignored) {
+         }
+         pwsEnabledCache = Boolean.valueOf(on);
+         System.out.println("[particlex][pws] static batch = " + on);
+      }
+      return pwsEnabledCache.booleanValue();
+   }
+
+
    @Inject(method = {"renderParticles"}, at = @At("HEAD"), cancellable = true)
    private void pwsRenderBatch(LightmapTextureManager lightmap, Camera camera, float tickDelta, CallbackInfo ci) {
       // 静态批次默认关闭（最后一步光照采样器未绑定）；-Dpws.batch=true 可启用
-      if (!Boolean.getBoolean("pws.batch")) {
+      if (!pwsEnabled()) {
          return;
       }
 
