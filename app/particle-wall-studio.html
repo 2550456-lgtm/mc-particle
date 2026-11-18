@@ -73,7 +73,8 @@
 
     <div class="field">
       <label>图片文件名（放进 particleImages）</label>
-      <input type="text" id="fname" value="image.png">
+      <input type="text" id="fname" value="chibi.png">
+      <div class="hint" id="nameHint" style="margin-top:6px"></div>
     </div>
 
     <div class="stat"><span>网格</span><b id="sGrid">—</b></div>
@@ -81,8 +82,10 @@
     <div class="stat"><span>墙宽</span><b id="sWall">—</b></div>
 
     <div style="height:14px"></div>
-    <button class="primary" id="btnCmd">复制 /particleex 命令</button>
-    <button id="btnZip">下载数据包 (.zip)</button>
+    <button class="primary" id="btnAll">复制完整流程（3 条命令）</button>
+    <button id="btnCmd">只复制 /particleex 命令</button>
+    <button id="btnSaveImg">保存图片到 particleImages 文件夹</button>
+    <button id="btnZip">下载数据包（装好后只需一条命令）</button>
     <button id="btnPng">导出预览图 (.png)</button>
 
     <p class="hint">
@@ -100,10 +103,10 @@
 (() => {
   const $ = id => document.getElementById(id);
   const cv = $('cv'), ctx = cv.getContext('2d');
-  let img = null, imgData = null, gridW = 0, gridH = 0;
+  let img = null, imgData = null, gridW = 0, gridH = 0, currentFile = null;
   let cellColors = null;          // Uint8ClampedArray gridW*gridH*3
 
-  const state = { bright: 1, grid: 208, dpb: 8, name: 'image.png', zoom: 1 };
+  const state = { bright: 1, grid: 208, dpb: 8, name: 'chibi.png', zoom: 1 };
 
   // 放大预览：画布本身分辨率不变，只放大显示（像素级放大，看到的是真实的点阵）
   function applyZoom() {
@@ -121,8 +124,10 @@
   // ---------- 载入图片 ----------
   $('file').addEventListener('change', e => {
     const f = e.target.files[0]; if (!f) return;
-    state.name = f.name.replace(/\.[^.]+$/, '') + '.png';
+    currentFile = f;
+    state.name = f.name;                       // 保持原文件名和扩展名
     $('fname').value = state.name;
+    setTimeout(updateNameHint, 0);
     const url = URL.createObjectURL(f);
     const im = new Image();
     im.onload = () => { img = im; sample(); render(); updateStats(); URL.revokeObjectURL(url); };
@@ -209,7 +214,23 @@
   bind('grid', 'grid', { out: 'vGrid', f: v => v });
   bind('dpb', 'dpb', { out: 'vDpb', f: v => v });
 
-  $('fname').addEventListener('input', e => { state.name = e.target.value || 'image.png'; });
+  function updateNameHint() {
+    const n = state.name || '';
+    const hint = $('nameHint');
+    if (!n) { hint.textContent = ''; return; }
+    if (/[^\x20-\x7E]/.test(n)) {
+      hint.style.color = '#ffb454';
+      hint.textContent = '⚠ 含中文/特殊字符，建议重命名为英文（如 bili.png），否则游戏里可能解析失败';
+    } else {
+      hint.style.color = 'var(--muted)';
+      hint.textContent = '必须是 particleImages\\ 里真实存在的文件，例如 chibi.png / bili.png / still.png / testcard.png';
+    }
+  }
+  $('fname').addEventListener('input', e => {
+    state.name = e.target.value || 'image.png';
+    updateNameHint();
+  });
+  updateNameHint();
 
   $('zoom').addEventListener('input', e => setZoom(parseFloat(e.target.value)));
   cv.addEventListener('wheel', e => {
@@ -220,7 +241,8 @@
   // ---------- 命令 ----------
   function command() {
     const scaling = (gridW / (img ? img.width : gridW)).toFixed(3);
-    return `/particleex image minecraft:glow ~ ~2 ~-18 ${state.name} ${scaling} 0 0 0 not ${state.dpb} 0 0 0 -1`;
+    const dist = Math.max(18, Math.ceil((gridW / state.dpb) * 0.7));
+    return `/particleex image minecraft:glow ~ ~2 ~-${dist} ${state.name} ${scaling} 0 0 0 not ${state.dpb} 0 0 0 -1`;
   }
 
   $('btnCmd').addEventListener('click', async () => {
@@ -229,6 +251,53 @@
     try { await navigator.clipboard.writeText(c); $('btnCmd').textContent = '已复制 ✓'; }
     catch { prompt('手动复制：', c); }
     setTimeout(() => $('btnCmd').textContent = '复制 /particleex 命令', 1500);
+  });
+
+  // ---------- 直接把图片写进 particleImages ----------
+  $('btnSaveImg').addEventListener('click', async () => {
+    if (!currentFile) return alert('先点上面的「选择文件」选一张图片');
+    if (!window.showDirectoryPicker) {
+      return alert('这个浏览器不支持直接写文件夹。\n请手动把图片拖进 particleImages 文件夹，并改名成：\n' + state.name);
+    }
+    try {
+      const dir = await window.showDirectoryPicker({ mode: 'readwrite', id: 'particleImages' });
+      const fh = await dir.getFileHandle(state.name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(currentFile);
+      await w.close();
+      $('btnSaveImg').textContent = '已写入 ' + state.name + ' ✓';
+      setTimeout(() => $('btnSaveImg').textContent = '保存图片到 particleImages 文件夹', 4000);
+    } catch (err) {
+      alert('写入没有完成：' + err.message +
+            '\n\n退路：手动把图片复制进 particleImages 文件夹，文件名改成 ' + state.name);
+    }
+  });
+
+  // ---------- 完整流程 ----------
+  function fullScript() {
+    const wallW = gridW / state.dpb;
+    const wallH = gridH / state.dpb;
+    const hx = Math.ceil(wallW / 2) + 2;
+    const hy = Math.ceil(wallH / 2) + 2;
+    const dist = Math.max(18, Math.ceil(wallW * 0.7));
+    const scaling = (gridW / (img ? img.width : gridW)).toFixed(3);
+    return [
+      '/particleex clearparticle',
+      `/fill ~-${hx} ~-${hy} ~-${dist + 1} ~${hx} ~${hy} ~-${dist + 1} minecraft:light`,
+      `/particleex image minecraft:glow ~ ~2 ~-${dist} ${state.name} ${scaling} 0 0 0 not ${state.dpb} 0 0 0 -1`
+    ].join('\n');
+  }
+
+  $('btnAll').addEventListener('click', async () => {
+    if (!img) return alert('先选一张图片');
+    const txt = fullScript();
+    try {
+      await navigator.clipboard.writeText(txt);
+      $('btnAll').textContent = '已复制 4 条 ✓';
+      alert('已复制 3 条命令（墙固定在你北边，记得转身朝北看）。\n\n重要：先把图片复制到\nparticleImages\\' + state.name +
+            '\n再进游戏（不是暂停菜单）逐条粘贴。');
+    } catch { prompt('手动复制：', txt); }
+    setTimeout(() => $('btnAll').textContent = '复制完整流程（3 条命令）', 3000);
   });
 
   // ---------- 预览图 ----------
@@ -300,13 +369,14 @@
     // 数据包：pack.mcmeta + 一个函数（函数体内直接是 particleex 命令）
     const files = [
       { name: 'pack.mcmeta', data: enc.encode(meta) },
-      { name: 'data/vid/function/draw.mcfunction', data: enc.encode(command() + "\n") },
+      { name: 'data/vid/function/draw.mcfunction', data: enc.encode(fullScript() + "\n") },
       { name: 'data/vid/function/help.mcfunction', data: enc.encode(
           "tellraw @s {\"text\":\"用法：/function vid:draw  —— 在你正前方画一面粒子墙\",\"color\":\"green\"}\n") }
     ];
     const blob = new Blob([zip(files)], { type: 'application/zip' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
+    setTimeout(() => alert('数据包已下载。\n\n① 放进存档 datapacks\\\n② /reload\n③ /function vid:draw  ← 就这一条，自动清场+铺光+画墙'), 300);
     a.download = 'particle-wall-datapack.zip';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 3000);

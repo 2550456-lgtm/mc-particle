@@ -37,12 +37,17 @@ mc-particle/
 
 ## 游戏内流程
 
+墙**固定朝北**（`-Z`），所以光源平面和粒子平面天然对齐，不需要转身。
+
 ```mcfunction
 /particleex clearparticle
-/tp @s ~ ~ ~ 180 0
-/fill ~-14 ~-11 ~-19 ~14 ~12 ~-19 minecraft:light
+/fill ~-15 ~-14 ~-19 ~15 ~14 ~-19 minecraft:light
 /particleex image minecraft:glow ~ ~2 ~-18 chibi.png 0.58 0 0 0 not 16 0 0 0 -1
 ```
+
+三条分别：清场 / 铺隐形光源 / 画墙。装数据包后只要 `/function vid:draw` 一条。
+
+看不到墙就转身朝北 —— 它在 `-Z` 方向 18 格。
 
 ## 参数含义（读模组源码确认）
 
