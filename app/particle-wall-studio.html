@@ -442,10 +442,16 @@
 
   function fullScript() {
     const g = geometry();
+    // 模组的墙是从"基点"往右、往上生成的（dx=col/dpb, dy=(rows-1-row)/dpb），
+    // 所以基点要往左下偏移半个墙，墙才会正对视线居中。
+    const wallW = gridW / state.dpb;
+    const wallH = gridH / state.dpb;
+    const ox = (-wallW / 2).toFixed(2);
+    const oy = (1.7 - wallH / 2).toFixed(2);      // 1.7 ≈ 眼睛高度
     return [
       '/particleex clearparticle',
       '/fill ~-' + g.hx + ' ~-' + g.hy + ' ~-' + (g.dist + 1) + ' ~' + g.hx + ' ~' + g.hy + ' ~-' + (g.dist + 1) + ' minecraft:light',
-      '/particleex image minecraft:glow ~ ~2 ~-' + g.dist + ' ' + state.name + ' ' + g.scaling + ' 0 0 0 not ' + state.dpb + ' 0 0 0 -1'
+      '/particleex image minecraft:glow ~' + ox + ' ~' + oy + ' ~-' + g.dist + ' ' + state.name + ' ' + g.scaling + ' 0 0 0 not ' + state.dpb + ' 0 0 0 -1'
     ].join('\n');
   }
 
