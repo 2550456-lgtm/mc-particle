@@ -72,7 +72,7 @@
       <label>图片文件名 <b id="vName">0.png</b></label>
       <div class="row">
         <input type="text" id="fname" value="0.png">
-        <button id="btnNext">下一个 +1</button>
+        <button id="btnNext">+1</button>
       </div>
       <button class="wide" id="btnSaveImg" style="margin-top:8px">保存图片到已授权文件夹</button>
       <div class="hint" id="nameHint"></div>
@@ -95,6 +95,7 @@
     <div class="stat"><span>网格</span><b id="sGrid">—</b></div>
     <div class="stat"><span>粒子数</span><b id="sCount">—</b></div>
     <div class="stat"><span>墙宽</span><b id="sWall">—</b></div>
+    <div class="stat"><span>函数名</span><b id="sFn">—</b></div>
 
     <div class="actions">
       <button class="primary" id="btnCmd">复制指令</button>
@@ -293,6 +294,7 @@
     $('sGrid').textContent = cellColors ? gridW + ' × ' + gridH : '—';
     $('sCount').textContent = cellColors ? (gridW * gridH).toLocaleString() : '—';
     $('sWall').textContent = cellColors ? (gridW / state.dpb).toFixed(1) + ' 格' : '—';
+    $('sFn').textContent = '/function vid:' + fnName();
   }
 
   // ---------------------------------------------------------------- 文件名
@@ -313,9 +315,17 @@
       el.textContent = '⚠ 含中文，建议用纯数字名（如 0.png）';
     } else {
       el.className = 'hint';
-      el.textContent = '必须和 particleImages 里真实文件同名';
+      el.textContent = '必须和 particleImages 里真实文件同名 → 函数 vid:' + fnName();
     }
   }
+
+  // ---------------------------------------------------------------- 由图片名推导标识
+  function fnId() {
+    const base = state.name.replace(/\.[^.]+$/, '');
+    const id = base.toLowerCase().replace(/[^a-z0-9_.-]/g, '_').replace(/^_+|_+$/g, '');
+    return id || '0';
+  }
+  function fnName() { return 'wall_' + fnId(); }
 
   // ---------------------------------------------------------------- 命令
   function geometry() {
@@ -401,15 +411,15 @@
     const body = fullScript().split('\n').map(l => l.replace(/^\s*\//, '')).join('\n') + '\n';
     const files = [
       { name: 'pack.mcmeta', data: enc.encode(meta) },
-      { name: 'data/vid/function/wall.mcfunction', data: enc.encode(body) }
+      { name: 'data/vid/function/' + fnName() + '.mcfunction', data: enc.encode(body) }
     ];
     const blob = new Blob([zipStore(files)], { type: 'application/zip' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'particle-wall-datapack.zip';
+    a.download = 'particle-wall-' + fnId() + '.zip';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 3000);
-    setTimeout(() => alert('数据包已下载。\n\n放进 存档\\datapacks\\ → /reload → /function vid:wall'), 300);
+    setTimeout(() => alert('已下载 particle-wall-' + fnId() + '.zip\n\n放进 存档\\datapacks\\ → /reload → /function vid:' + fnName()), 300);
   });
 
   // ---------------------------------------------------------------- 绑定
