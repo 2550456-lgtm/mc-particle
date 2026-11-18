@@ -212,21 +212,11 @@
     } catch (e) { return null; }
   }
 
-  // 只检查重名并提示，绝不自动改名（自动改名会让数据包/指令指向不存在的文件）
+  // 只更新状态，不做任何提示或改名：保存 = 直接覆盖同名文件
   async function apiCheckName() {
     const names = await apiList();
     if (!names) return;
-    const exists = names.some(function (n) { return n.toLowerCase() === state.name.toLowerCase(); });
-    setDirStatus('已自动定位，目录里 ' + names.length + ' 张图' +
-      (exists ? '；' + state.name + ' 已存在，保存会覆盖' : ''),
-      exists ? 'warn' : 'ok');
-    if (exists) {
-      const el = $('nameHint');
-      el.className = 'hint warn';
-      el.textContent = state.name + ' 已存在，保存会覆盖；想保留旧的请点 +1';
-    } else {
-      nameHint();
-    }
+    setDirStatus('已自动定位，目录里 ' + names.length + ' 张图', 'ok');
   }
 
   // ---------------------------------------------------------------- 目录授权
@@ -285,8 +275,8 @@
         });
         const j = await r.json();
         if (!j.ok) return alert('保存失败：' + j.error);
-        $('btnSaveImg').textContent = '已写入 ' + state.name +
-          (state.libDir ? ' → 游戏目录 + 素材夹 ✓' : ' → 游戏目录 ✓');
+        $('btnSaveImg').textContent = '已保存 ' + state.name +
+          (state.libDir ? ' ✓（游戏目录 + 素材夹）' : ' ✓');
         setTimeout(() => $('btnSaveImg').textContent = '保存图片', 3500);
         await apiCheckName();
         return;
@@ -305,10 +295,6 @@
       if (perm !== 'granted') return alert('没有写入权限');
 
       const name = state.name;
-      let exists = false;
-      try { await dirHandle.getFileHandle(name); exists = true; } catch (e) { exists = false; }
-      if (exists && !confirm(name + ' 已存在，覆盖吗？')) return;
-
       const fh = await dirHandle.getFileHandle(name, { create: true });
       const w = await fh.createWritable();
       await w.write(currentFile);
