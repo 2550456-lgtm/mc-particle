@@ -60,6 +60,7 @@
       <div class="row">
         <button id="btnPickDir" style="width:auto;flex:1">选择 particleImages 文件夹</button>
       </div>
+      <div class="hint" id="derivedPaths"></div>
       <div class="hint" id="dirStatus">未授权</div>
     </div>
 
@@ -156,6 +157,34 @@
     }
   };
 
+  // ---------------------------------------------------------------- 从存档路径推导 particleImages
+  // 模组读的是工作目录（版本目录）下的 ./particleImages，
+  // 而工作目录 = 存档路径里的 saves 的上一级。
+  function derived() {
+    const raw = (state.worldPath || '').replace(/[\\/]+$/, '');
+    const m = /^(.*?)[\\/]saves[\\/][^\\/]+$/i.exec(raw);
+    if (!m) return null;
+    return {
+      game: m[1],
+      images: m[1] + '\\particleImages',
+      datapacks: raw + '\\datapacks'
+    };
+  }
+
+  function renderDerived() {
+    const el = $('derivedPaths');
+    const d = derived();
+    if (!d) {
+      el.className = 'hint warn';
+      el.textContent = '（把完整的存档路径填进来，路径里要包含 \\saves\\<存档名>）';
+      return;
+    }
+    el.className = 'hint';
+    el.innerHTML =
+      '图片应放：<br><b>' + d.images + '</b><br>' +
+      '数据包应放：<br><b>' + d.datapacks + '</b>';
+  }
+
   // ---------------------------------------------------------------- 目录授权
   function setDirStatus(text, cls) {
     const el = $('dirStatus');
@@ -193,7 +222,11 @@
 
   async function saveImage() {
     if (!currentFile) return alert('先在「图片」里选一张');
-    if (!dirHandle) return alert('先点「选择 particleImages 文件夹」授权一次');
+    if (!dirHandle) {
+      const d = derived();
+      return alert('先点「选择 particleImages 文件夹」授权一次。' +
+                   (d ? '\n\n要选的是：\n' + d.images : ''));
+    }
     try {
       let perm = await dirHandle.queryPermission({ mode: 'readwrite' });
       if (perm !== 'granted') perm = await dirHandle.requestPermission({ mode: 'readwrite' });
@@ -219,6 +252,14 @@
   $('file').addEventListener('change', e => {
     const f = e.target.files[0]; if (!f) return;
     currentFile = f;
+    // 扩展名跟着源文件走，避免命令指向一个不存在的名字
+    const mm = /\.[A-Za-z0-9]+$/.exec(f.name);
+    const ext = mm ? mm[0].toLowerCase() : '.png';
+    state.name = state.name.replace(/\.[^.]+$/, '') + ext;
+    $('fname').value = state.name;
+    $('vName').textContent = state.name;
+    nameHint(); saveSettings();
+    if (cellColors) updateStats();
     const url = URL.createObjectURL(f);
     const im = new Image();
     im.onload = () => { img = im; sample(); render(); updateStats(); URL.revokeObjectURL(url); };
@@ -451,7 +492,10 @@
     nameHint(); saveSettings();
   });
   $('btnNext').addEventListener('click', bumpName);
-  $('worldPath').addEventListener('input', e => { state.worldPath = e.target.value; saveSettings(); });
+  $('worldPath').addEventListener('input', e => {
+    state.worldPath = e.target.value;
+    renderDerived(); saveSettings();
+  });
   $('btnPickDir').addEventListener('click', pickDir);
   $('btnSaveImg').addEventListener('click', saveImage);
 
@@ -466,6 +510,7 @@
   $('fname').value = state.name;
   $('vName').textContent = state.name;
   $('worldPath').value = state.worldPath || '';
+  renderDerived();
   nameHint();
   setZoom(state.zoom || 1);
   restoreDir();
