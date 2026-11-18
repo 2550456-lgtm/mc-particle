@@ -66,6 +66,16 @@ mc-particle/
 | `end_rod` 全是白的 | 它自己管颜色动画，模组染色只对 `SingleQuadParticle` 生效 |
 | `dust` 是圆点 | 形状由贴图决定，需替换 `generic_*` / `glow.png` |
 
+
+## 数据包的两个坑（1.21 实测）
+
+| 坑 | 现象 | 正确做法 |
+|---|---|---|
+| 函数文件里带前导 `/` | `/function` 报"未知的函数"，日志写 `Failed to load function` | 每行**不要**写 `/` |
+| 目录写成 `functions`（复数） | 同上 | 必须是 `data/<ns>/function/`（**单数**） |
+
+这两条是 1.21 的行为，和网上 1.16 时代的教程正好相反。
+
 ## tools/
 
 | 脚本 | 作用 |
