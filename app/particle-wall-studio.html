@@ -98,8 +98,8 @@
     <div class="stat"><span>函数名</span><b id="sFn">—</b></div>
 
     <div class="actions">
-      <button class="primary" id="btnCmd">复制指令</button>
       <button class="primary" id="btnZip">下载数据包</button>
+      <button class="primary" id="btnCmd">复制指令</button>
     </div>
   </aside>
 
@@ -348,13 +348,12 @@
   }
 
   $('btnCmd').addEventListener('click', async () => {
-    if (!img) return alert('先选一张图片');
-    const txt = fullScript();
+    const txt = '/function vid:' + fnName();
     try {
       await navigator.clipboard.writeText(txt);
-      $('btnCmd').textContent = '已复制 3 条 ✓';
+      $('btnCmd').textContent = '已复制 ' + txt + ' ✓';
     } catch (e) { prompt('手动复制：', txt); }
-    setTimeout(() => $('btnCmd').textContent = '复制指令', 2000);
+    setTimeout(() => $('btnCmd').textContent = '复制指令', 2600);
   });
 
   // ---------------------------------------------------------------- ZIP
