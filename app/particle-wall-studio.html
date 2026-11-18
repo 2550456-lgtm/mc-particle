@@ -55,15 +55,10 @@
   <aside>
 
     <div class="block">
-      <label>存档位置（保存图片用）</label>
-      <input type="text" id="worldPath" placeholder="D:\games\PCL\.minecraft\saves\新的世界">
-      <div class="row">
-        <button id="btnPickDir" style="width:auto;flex:1">选择 particleImages 文件夹</button>
-      </div>
-      <label style="margin-top:10px">素材文件夹（可选，随便哪个都行）</label>
-      <input type="text" id="libDir" placeholder="D:\素材\粒子图">
-      <div class="hint" id="derivedPaths"></div>
-      <div class="hint" id="dirStatus">未授权</div>
+      <label>素材文件夹（可选）</label>
+      <input type="text" id="libDir" placeholder="D:\素材\粒子图（留空则只存游戏目录）">
+      <div class="hint" id="derivedPaths">正在自动定位游戏目录…</div>
+      <div class="hint" id="dirStatus"></div>
     </div>
 
     <div class="block">
@@ -200,7 +195,7 @@
   async function apiDetect() {
     if (!HAS_API) return;
     try {
-      const r = await fetch('/api/detect?world=' + encodeURIComponent(state.worldPath || ''));
+      const r = await fetch('/api/detect');
       const j = await r.json();
       serverInfo = j.ok ? j : null;
     } catch (e) { serverInfo = null; }
@@ -211,7 +206,7 @@
   async function apiList() {
     if (!HAS_API) return null;
     try {
-      const r = await fetch('/api/list?world=' + encodeURIComponent(state.worldPath || ''));
+      const r = await fetch('/api/list');
       const j = await r.json();
       return j.ok ? j.images : null;
     } catch (e) { return null; }
@@ -233,7 +228,7 @@
     $('fname').value = state.name;
     $('vName').textContent = state.name;
     nameHint(); saveSettings();
-    setDirStatus('本地模式：已自动定位图片目录，共 ' + names.length + ' 张', 'ok');
+    setDirStatus('已自动定位，图片目录里有 ' + names.length + ' 张', 'ok');
   }
 
   // ---------------------------------------------------------------- 目录授权
@@ -288,7 +283,7 @@
         });
         const r = await fetch('/api/save', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ world: state.worldPath, name: state.name, data: dataUrl, library: state.libDir })
+          body: JSON.stringify({ name: state.name, data: dataUrl, library: state.libDir })
         });
         const j = await r.json();
         if (!j.ok) return alert('保存失败：' + j.error);
@@ -574,12 +569,7 @@
     nameHint(); saveSettings();
   });
   $('btnNext').addEventListener('click', bumpName);
-  $('worldPath').addEventListener('input', e => {
-    state.worldPath = e.target.value;
-    renderDerived(); saveSettings();
-  });
   $('libDir').addEventListener('input', e => { state.libDir = e.target.value; saveSettings(); });
-  $('btnPickDir').addEventListener('click', pickDir);
   $('btnSaveImg').addEventListener('click', saveImage);
 
   // ---------------------------------------------------------------- 启动
@@ -592,12 +582,10 @@
   $('vDpb').textContent = state.dpb;
   $('fname').value = state.name;
   $('vName').textContent = state.name;
-  $('worldPath').value = state.worldPath || '';
   $('libDir').value = state.libDir || '';
   renderDerived();
   nameHint();
   setZoom(state.zoom || 1);
-  restoreDir();
   apiDetect();
   render();
 })();

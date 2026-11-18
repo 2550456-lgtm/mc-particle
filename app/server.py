@@ -65,6 +65,84 @@ def resolve(world):
     }
 
 
+# ------------------------------------------------------------------ 自动定位
+def _score_mtime(path):
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
+def _mc_roots():
+    """列出可能存在的 .minecraft 根目录。"""
+    roots = []
+    for env in ("APPDATA", "LOCALAPPDATA"):
+        v = os.environ.get(env)
+        if v:
+            roots.append(os.path.join(v, ".minecraft"))
+    for drive in "CDEFG":
+        for pat in ("games\\PCL\\.minecraft", "PCL\\.minecraft", ".minecraft",
+                    "Minecraft\\.minecraft", "games\\.minecraft"):
+            roots.append(drive + ":\\" + pat)
+    # 去重 + 只保留存在的
+    out, seen = [], set()
+    for r in roots:
+        key = os.path.normcase(os.path.abspath(r))
+        if key in seen or not os.path.isdir(r):
+            continue
+        seen.add(key)
+        out.append(os.path.abspath(r))
+    return out
+
+
+def auto_detect():
+    """找出最近使用过的游戏目录（gameDir）和它下面最新的存档。"""
+    candidates = []
+    for mc in _mc_roots():
+        versions = os.path.join(mc, "versions")
+        if os.path.isdir(versions):
+            for name in os.listdir(versions):
+                gd = os.path.join(versions, name)
+                if os.path.isdir(gd):
+                    candidates.append(gd)
+        candidates.append(mc)          # 没开版本隔离的情况
+
+    if not candidates:
+        return None
+
+    def score(gd):
+        log = os.path.join(gd, "logs", "latest.log")
+        has_img = os.path.isdir(os.path.join(gd, "particleImages"))
+        return (_score_mtime(log) if os.path.isfile(log) else 0.0) + (1e9 if has_img else 0.0)
+
+    candidates.sort(key=score, reverse=True)
+    game = candidates[0]
+    if score(game) <= 0:
+        return None
+
+    world = None
+    saves = os.path.join(game, "saves")
+    if os.path.isdir(saves):
+        worlds = [( _score_mtime(os.path.join(saves, w, "level.dat")), w)
+                  for w in os.listdir(saves) if os.path.isdir(os.path.join(saves, w))]
+        worlds = [x for x in worlds if x[0] > 0]
+        if worlds:
+            worlds.sort(reverse=True)
+            world = os.path.join(saves, worlds[0][1])
+
+    images = os.path.join(game, "particleImages")
+    return {
+        "ok": True,
+        "auto": True,
+        "game": game,
+        "world": world,
+        "images": images,
+        "imagesExists": os.path.isdir(images),
+        "datapacks": os.path.join(world, "datapacks") if world else None,
+        "datapacksExists": bool(world) and os.path.isdir(os.path.join(world, "datapacks")),
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ParticleWallStudio/1.0"
 
@@ -103,13 +181,16 @@ class Handler(BaseHTTPRequestHandler):
 
         if u.path == "/api/detect":
             world = (q.get("world") or [""])[0]
-            info = resolve(world)
-            info["ok"] = bool(info.get("game"))
-            return self._json(info)
+            if world:
+                info = resolve(world)
+                info["ok"] = bool(info.get("game"))
+                return self._json(info)
+            auto = auto_detect()
+            return self._json(auto or {"ok": False, "error": "找不到 Minecraft 目录"})
 
         if u.path == "/api/list":
             world = (q.get("world") or [""])[0]
-            info = resolve(world)
+            info = resolve(world) if world else (auto_detect() or {})
             names = []
             if info.get("imagesExists"):
                 try:
@@ -145,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
         if ext not in ALLOWED_EXT:
             return self._json({"ok": False, "error": "不支持的扩展名: %s" % ext}, 400)
 
-        info = resolve(world)
+        info = resolve(world) if world else (auto_detect() or {})
         images = info.get("images")
         if not images:
             return self._json({"ok": False, "error": "无法从路径推导 particleImages"}, 400)
