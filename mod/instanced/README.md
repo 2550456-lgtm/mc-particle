@@ -1,87 +1,96 @@
-# particle-instanced · 定稿说明
+# particle-instanced · 视频粒子墙
 
-把静态图片渲染成粒子墙的 Minecraft 1.21.1 Fabric 客户端模组。
-**92 万粒子，一次 draw call，CPU 不生成顶点。**
-
----
-
-## 最终参数（v1.0 定稿）
-
-| 参数 | 值 | 说明 |
-|---|---|---|
-| `LOD_COLS` | `{1280}` | 1280×720 = 921,600 粒子 |
-| `WALL_W` | `40.0f` | 墙宽 40 格（高约 22.5 格） |
-| `WALL_Z` | `-18.0f` | 距世界原点的 z 距离 |
-| `SIZE_RATIO` | `1.32f` | 粒子边长 = 像素间距 × 1.32 |
-| `POS_JITTER` | `0.25f` | 位置抖动 ±12.5% 间距（抑制摩尔纹） |
-| `SIZE_JITTER` | `0.35f` | 尺寸抖动 ±17.5%（自然层次） |
-| 边缘过渡 | `smoothstep(0.75, 1.0, d)` | 外侧 25% 柔化，约 1 像素 |
+把视频渲染成 Minecraft 里的粒子墙：**921,600 个粒子，一次 draw call**。
 
 ---
 
-## 原理
+## 当前版本：视频模式
 
-```
-① 生成（一次）
-   图片 → 双线性降采样到 1280×720
-   每像素一条实例：位置 xyz(12B) + 颜色 rgba(16B) + 大小(4B) = 32B
-   → 上传 VBO（STATIC_DRAW）
+| 参数 | 值 |
+|---|---|
+| 网格 | 1280 × 720 = 921,600 粒子 |
+| 墙宽 | 40 格（高 22.5 格） |
+| 距原点 | z = -18 |
+| 粒子边长 | 像素间距 × 1.32 |
+| 位置抖动 | ±12.5% 间距 |
+| 尺寸抖动 | ±17.5% |
+| 边缘柔化 | 外侧 25%（约 1 像素） |
+| 帧率 | 12 fps |
+| 帧数 | 由 op.rgb 文件大小自动推导（当前 1106 帧 / 92 秒） |
 
-② 渲染（每帧）
-   glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, 921600)
-   顶点着色器：gl_VertexID 的 0..3 → 四个角
-   片元着色器：|x|+|y|<=1 画菱形
-```
+## 命令
 
----
-
-## 硬性依赖：ThreatenGL 2.0.4+
-
-MC 1.21.1 默认是 OpenGL **3.2** 上下文，而实例化需要 **3.3** 的 `glVertexAttribDivisor`。
-缺失时调用会直接 JVM abort（Java 的 catch 拦不住）：
-
-```
-FATAL ERROR: No context is current ... glVertexAttribDivisor
-```
-
-模组已内置版本探测：GL < 3.3 时打印警告并跳过，不会崩溃。
-
-启动正常时日志应为：
-
-```
-[pws-inst] GL_VERSION = 4.6.0 NVIDIA ...
-[pws-inst] LOD0 cols=1280 instances=921600
-```
+| 命令 | 作用 |
+|---|---|
+| `/start` | 从头开始播放 |
+| `/run` | 继续播放（保留进度） |
+| `/stop` | 暂停（画面保留） |
+| `/end` | 结束并隐藏 |
 
 ---
 
-## 摩尔纹调参经验（重要）
+## 为什么粒子位置和大小是固定的
 
-这是本次开发踩得最久的坑，结论按有效性排序：
+设计如此：**位置/大小写死在静态 VBO 里，只有颜色每帧更新**。
 
-| 手段 | 效果 | 代价 |
-|---|---|---|
-| **降低列数**（1280→640，每粒从 2px 变 4px） | ★★★★★ 最有效 | 清晰度减半 |
-| **位置抖动 POS_JITTER** | ★★★★ 破坏规则格点，消拍频 | 观感变"散" |
-| 边缘柔化（smoothstep 25%） | ★★★ 消硬边锯齿 | 略糊 |
-| 尺寸抖动 | ★★ 打散规律感 | 无 |
-| LOD 按距离切档 | ★ 实测几乎无效 | 切换跳变 |
+```
+静态 VBO  位置 xyz + 大小 = 16 B × 921,600 = 14.7 MB   上传一次
+动态 VBO  颜色 rgb        = 3 B × 921,600 = 2.76 MB    每帧上传
+```
 
-**根本原因**：规则格点在透视投影下，屏幕间距连续变化，与像素栅格产生拍频。
-只要粒子投影 <= 2 像素且排列规则，就一定会出现同心弧条纹。
+好处：
 
-当前 1280 版是"清晰度"和"纹路"的平衡点 —— 位置抖动 0.25 刚好压住条纹又不至于太散。
+```
+· 每帧 CPU 只做一次 read + 一次 glBufferSubData
+· 顶点完全由 GPU 用 gl_VertexID 生成
+· 921,600 粒子的动画只花 2.76 MB/帧带宽
+```
+
+如果粒子位置每帧都变，需要额外 33 MB/帧的位置数据，而且画面会糊成一团 ——
+视频是"逐像素采样"，粒子一旦移动就无法对应原画面的像素。
+
+---
+
+## 素材准备
+
+```bash
+ffmpeg -y -i 你的视频.mp4 \
+  -vf "scale=1280:720:flags=lanczos" \
+  -r 12 -f rawvideo -pix_fmt rgb24 \
+  "版本目录\particleImages\op.rgb"
+```
+
+- `-r 12` 抽帧率（须与代码 `FRAME_FPS` 一致，否则播放速度不对）
+- `scale` 必须是 1280:720
+- 帧数不用管，模组按 `文件大小 / 每帧字节数` 自动推导
+
+---
+
+## 实现要点
+
+```
+① 静态 VBO：位置+大小，VAO 里 divisor=1
+② 动态 VBO：颜色 3 字节归一化，每帧 glBufferSubData
+③ 帧数据用 FileChannel 按帧读入复用缓冲（文件可达数 GB，
+   不能整体 map —— Java 单次映射上限 2 GB）
+④ 偏移必须用 long：frame * FRAME_BYTES 会超过 Integer.MAX_VALUE
+```
+
+## 硬性依赖
+
+**ThreatenGL 2.0.4+** —— MC 1.21.1 是 GL 3.2，实例化需要 3.3 的
+`glVertexAttribDivisor`，缺失会直接 JVM abort。模组已内置版本探测。
 
 ---
 
 ## 附带功能：纯黑世界
 
 ```
-WorldRendererMixin  取消 renderSky（太阳/月亮/星星）和 renderClouds
-ClientWorldMixin    getSkyColor 返回黑色（雾色 + 背景清屏色）
+WorldRendererMixin  取消 renderSky（日月星辰）和 renderClouds
+ClientWorldMixin    getSkyColor → 黑色（雾色 + 背景清屏色）
 ```
 
-白天地面仍会被阳光照亮，要全黑还需：
+白天地面仍被阳光照亮，要全黑再加：
 
 ```
 /gamerule doDaylightCycle false
@@ -90,30 +99,13 @@ ClientWorldMixin    getSkyColor 返回黑色（雾色 + 背景清屏色）
 
 ---
 
-## 安装
-
-```
-① Fabric Loader 0.17+ / Fabric API
-② ThreatenGL 2.0.4+（必需）
-③ jar 放进 mods\
-④ 图片放 版本目录\particleImages\still.png
-⑤ 进存档，站在世界原点附近朝北看
-```
-
-> 图片路径相对**版本目录**（工作目录），不是存档目录。
-
----
-
 ## 重新编译
-
-需要 Gradle 8.12+、JDK 21：
 
 ```bash
 gradle build --no-daemon --init-script 编译用-init.gradle
 ```
 
-`编译用-init.gradle` 做两件事：本地 `.minecraft\libraries` 当 maven 仓库、补阿里云镜像
-（国内直连 `libraries.minecraft.net` 会超时）。
+Gradle 8.12+、JDK 21。init 脚本提供本地库仓库 + 阿里云镜像（国内必需）。
 
 ---
 
@@ -121,22 +113,7 @@ gradle build --no-daemon --init-script 编译用-init.gradle
 
 ```
 · 只支持 1.21.1
-· 图片路径/分辨率/尺寸全部写死，改需重新编译
+· 分辨率/墙宽/帧率写死在代码里
 · 墙固定在世界坐标，不跟随玩家
-· 墙宽超过 100 格时填充率过高，可能导致显卡驱动挂死（实测 320 格必死）
-```
-
----
-
-## 文件清单
-
-```
-particle-instanced-1.0.0.jar     成品
-src/ParticleInstanced.java       主实现
-src/WorldRendererMixin.java      去天空/云
-src/ClientWorldMixin.java        天空色置黑
-src/fabric.mod.json              元数据
-src/particle-instanced.mixins.json
-build.gradle / gradle.properties
-编译用-init.gradle                国内编译必备
+· 墙宽超过 100 格时填充率过高，实测 320 格会拖死显卡驱动
 ```
