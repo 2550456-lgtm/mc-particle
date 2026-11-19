@@ -117,3 +117,42 @@ Gradle 8.12+、JDK 21。init 脚本提供本地库仓库 + 阿里云镜像（国
 · 墙固定在世界坐标，不跟随玩家
 · 墙宽超过 100 格时填充率过高，实测 320 格会拖死显卡驱动
 ```
+
+---
+
+## 每帧粒子抖动（v1.2）
+
+每颗粒子每帧的位置和大小都不同，用整数哈希在**着色器内**生成，不增加任何上传数据。
+
+```glsl
+uniform int uFrame;                       // 帧号
+
+uint pcg(uint v) {                        // PCG 哈希
+    uint state = v * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+uint base = uint(gl_InstanceID);
+uint f    = uint(uFrame);
+float h1 = rnd(base ^ (f * 0x9E3779B9u));
+float h2 = rnd((base + 0x1234u) ^ (f * 0x85EBCA6Bu));
+float h3 = rnd((base + 0x5678u) ^ (f * 0xC2B2AE35u));
+
+vec2  jit  = (vec2(h1, h2) - 0.5) * iSize * 0.18;   // 位置 ±18% 尺寸
+float sMul = 1.0 + (h3 - 0.5) * 0.15;                // 大小 ±7.5%
+```
+
+**为什么必须用整数哈希**：早期版本用 `hash(id) = fract(sin(id*12.9898)*43758.5)`，
+当 id 到 92 万时 `id*12.9898 ≈ 1.2e7`，超出 float32 的 24 位尾数精度，
+`sin()` 结果在相邻 id 间几乎相同 → 所有粒子抖动同步。
+整数位运算没有这个问题。
+
+幅度参考：
+
+| 系数 | 观感 |
+|---|---|
+| 0.10 | 几乎静止，只有轻微"呼吸" |
+| **0.18** | **当前：细碎颤动，图像稳定** |
+| 0.35 | 明显晃动 |
+| 0.60 | 接近粒子雾 |

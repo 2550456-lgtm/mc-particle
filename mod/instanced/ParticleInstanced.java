@@ -253,6 +253,7 @@ public class ParticleInstanced implements ClientModInitializer {
         proj.get(pj);
         GL20.glUniformMatrix4fv(GL20.glGetUniformLocation(program, "uModelView"), false, mv);
         GL20.glUniformMatrix4fv(GL20.glGetUniformLocation(program, "uProjection"), false, pj);
+        GL20.glUniform1i(GL20.glGetUniformLocation(program, "uFrame"), frame);
 
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
@@ -272,13 +273,36 @@ public class ParticleInstanced implements ClientModInitializer {
             layout(location = 2) in float iSize;
             uniform mat4 uModelView;
             uniform mat4 uProjection;
+            uniform int uFrame;       // 帧序号，驱动每帧变化
             out vec2 vUv;
             out vec4 vColor;
+
+            // 整数哈希（PCG），精度稳定，不会因为 id 很大而退化
+            uint pcg(uint v) {
+                uint state = v * 747796405u + 2891336453u;
+                uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+                return (word >> 22u) ^ word;
+            }
+            float rnd(uint seed) {
+                return float(pcg(seed) & 0xFFFFFFu) / 16777215.0;
+            }
+
             void main() {
+                uint base = uint(gl_InstanceID);
+                uint f = uint(uFrame);
+
+                // 每颗粒子 × 每帧，三个独立随机量
+                float h1 = rnd(base ^ (f * 0x9E3779B9u));
+                float h2 = rnd((base + 0x1234u) ^ (f * 0x85EBCA6Bu));
+                float h3 = rnd((base + 0x5678u) ^ (f * 0xC2B2AE35u));
+
+                vec2 jit = (vec2(h1, h2) - 0.5) * iSize * 0.18;   // 位置
+                float sMul = 1.0 + (h3 - 0.5) * 0.15;             // 大小
+
                 vec2 corner = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1)) * 2.0 - 1.0;
                 vUv = corner * 0.5 + 0.5;
                 vColor = vec4(iColor, 1.0);
-                vec3 world = iPos + vec3(corner * 0.5 * iSize, 0.0);
+                vec3 world = iPos + vec3(corner * 0.5 * iSize * sMul + jit, 0.0);
                 gl_Position = uProjection * uModelView * vec4(world, 1.0);
             }
             """;
