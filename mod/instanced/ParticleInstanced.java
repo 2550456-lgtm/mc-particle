@@ -39,7 +39,9 @@ public class ParticleInstanced implements ClientModInitializer {
     private static final float FRAME_FPS = 12.0f;  // 播放帧率
 
     private static final float WALL_W = 40.0f;     // 墙宽（格）
-    private static final float WALL_Z = -18.0f;    // 离原点的距离
+    private static final float WALL_Z = -18.0f;    // 墙中心的世界 z
+    private static final float WALL_CENTER_X = 0.0f;
+    private static final float WALL_CENTER_Y = 5.75f;
     private static final float SIZE_RATIO = 1.32f;
     private static final float POS_JITTER = 0.25f;
     private static final float SIZE_JITTER = 0.35f;
@@ -80,7 +82,7 @@ public class ParticleInstanced implements ClientModInitializer {
                 Matrix4f view = new Matrix4f()
                         .rotation(cam.getRotation().conjugate())
                         .translate((float) -cp.x, (float) -cp.y, (float) -cp.z);
-                draw(view, ctx.projectionMatrix());
+                draw(view, ctx.projectionMatrix(), cam.getRotation());
             } catch (Throwable t) {
                 failed = true;
                 LOG.error("[pws-inst] disabled after error", t);
@@ -173,8 +175,8 @@ public class ParticleInstanced implements ClientModInitializer {
                 float jx = (rnd.nextFloat() - 0.5f) * POS_JITTER * step;
                 float jy = (rnd.nextFloat() - 0.5f) * POS_JITTER * step;
                 float jit = 1.0f + (rnd.nextFloat() - 0.5f) * SIZE_JITTER;
-                fb.put(-halfW + x * step + jx);
-                fb.put(halfH - y * step + jy);
+                fb.put(WALL_CENTER_X - halfW + x * step + jx);
+                fb.put(WALL_CENTER_Y + halfH - y * step + jy);
                 fb.put(WALL_Z);
                 fb.put(dot * jit);
             }
@@ -220,7 +222,7 @@ public class ParticleInstanced implements ClientModInitializer {
     }
 
     // ---------------------------------------------------------------- 绘制
-    private static void draw(Matrix4f view, Matrix4f proj) {
+    private static void draw(Matrix4f view, Matrix4f proj, org.joml.Quaternionf camRot) {
         // 当前帧
         long now = System.nanoTime();
         if (playing && lastFrameNanos != 0) {
@@ -254,13 +256,25 @@ public class ParticleInstanced implements ClientModInitializer {
         GL20.glUniformMatrix4fv(GL20.glGetUniformLocation(program, "uModelView"), false, mv);
         GL20.glUniformMatrix4fv(GL20.glGetUniformLocation(program, "uProjection"), false, pj);
         GL20.glUniform1i(GL20.glGetUniformLocation(program, "uFrame"), frame);
+        // 从视图矩阵取相机基：view 的上 3x3 是 world->camera，转置即 camera->world
+        org.joml.Matrix3f basis = new org.joml.Matrix3f();
+        view.get3x3(basis);
+        basis.transpose();
+        org.joml.Vector3f right = basis.getColumn(0, new org.joml.Vector3f());
+        org.joml.Vector3f up = basis.getColumn(1, new org.joml.Vector3f());
+        right.normalize();
+        up.normalize();
+        GL20.glUniform3f(GL20.glGetUniformLocation(program, "uCamRight"), right.x, right.y, right.z);
+        GL20.glUniform3f(GL20.glGetUniformLocation(program, "uCamUp"), up.x, up.y, up.z);
 
-        GL11.glEnable(GL11.GL_BLEND);
+GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glDisable(GL11.GL_CULL_FACE);
         GL30.glBindVertexArray(vao);
         GL31.glDrawArraysInstanced(GL11.GL_TRIANGLE_STRIP, 0, 4, instanceCount);
         GL30.glBindVertexArray(0);
+        GL11.glEnable(GL11.GL_CULL_FACE);
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL20.glUseProgram(0);
     }
@@ -268,16 +282,17 @@ public class ParticleInstanced implements ClientModInitializer {
     // ---------------------------------------------------------------- 着色器
     private static final String VSH = """
             #version 330 core
-            layout(location = 0) in vec3 iPos;
+            layout(location = 0) in vec3 iPos;    // 世界坐标（墙固定不动）
             layout(location = 1) in vec3 iColor;
             layout(location = 2) in float iSize;
             uniform mat4 uModelView;
             uniform mat4 uProjection;
-            uniform int uFrame;       // 帧序号，驱动每帧变化
+            uniform int uFrame;
+            uniform vec3 uCamRight;
+            uniform vec3 uCamUp;
             out vec2 vUv;
             out vec4 vColor;
 
-            // 整数哈希（PCG），精度稳定，不会因为 id 很大而退化
             uint pcg(uint v) {
                 uint state = v * 747796405u + 2891336453u;
                 uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
@@ -290,19 +305,21 @@ public class ParticleInstanced implements ClientModInitializer {
             void main() {
                 uint base = uint(gl_InstanceID);
                 uint f = uint(uFrame);
-
-                // 每颗粒子 × 每帧，三个独立随机量
                 float h1 = rnd(base ^ (f * 0x9E3779B9u));
                 float h2 = rnd((base + 0x1234u) ^ (f * 0x85EBCA6Bu));
                 float h3 = rnd((base + 0x5678u) ^ (f * 0xC2B2AE35u));
 
-                vec2 jit = (vec2(h1, h2) - 0.5) * iSize * 0.18;   // 位置
-                float sMul = 1.0 + (h3 - 0.5) * 0.15;             // 大小
+                float sMul = 1.0 + (h3 - 0.5) * 0.15;
+                vec2 jit = (vec2(h1, h2) - 0.5) * 0.18;
 
                 vec2 corner = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1)) * 2.0 - 1.0;
                 vUv = corner * 0.5 + 0.5;
                 vColor = vec4(iColor, 1.0);
-                vec3 world = iPos + vec3(corner * 0.5 * iSize * sMul + jit, 0.0);
+
+                // 只有粒子自身朝向相机；墙面本身固定在世界坐标
+                vec3 offset = (uCamRight * (corner.x + jit.x) + uCamUp * (corner.y + jit.y))
+                              * 0.5 * iSize * sMul;
+                vec3 world = iPos + offset;
                 gl_Position = uProjection * uModelView * vec4(world, 1.0);
             }
             """;

@@ -156,3 +156,46 @@ float sMul = 1.0 + (h3 - 0.5) * 0.15;                // 大小 ±7.5%
 | **0.18** | **当前：细碎颤动，图像稳定** |
 | 0.35 | 明显晃动 |
 | 0.60 | 接近粒子雾 |
+
+---
+
+## 粒子朝向：billboard（v1.3）
+
+每颗粒子**始终正面朝向摄像机**，但整面墙位置固定在世界坐标里。
+
+```glsl
+vec3 offset = (uCamRight * (corner.x + jit.x) + uCamUp * (corner.y + jit.y))
+              * 0.5 * iSize * sMul;
+vec3 world = iPos + offset;      // iPos 是世界坐标，墙不动
+```
+
+相机基向量**从视图矩阵推导**，不依赖相机四元数的方向约定：
+
+```java
+view.get3x3(basis);      // view 上 3×3 = world→camera
+basis.transpose();       // 转置 = camera→world
+right = basis.getColumn(0);
+up    = basis.getColumn(1);
+```
+
+> 早期版本用 `cam.getRotation().rotate(1,0,0)`，方向约定反了会导致粒子在某些角度侧翻。
+> 从视图矩阵推导保证与世界→相机的变换自洽。
+
+同时关闭了背面剔除：
+
+```java
+GL11.glDisable(GL11.GL_CULL_FACE);   // 绘制期间
+```
+
+已知限制：墙是单层平面，从侧面看会被压扁（几何决定，非 bug）。
+
+---
+
+## 命令
+
+| 命令 | 作用 |
+|---|---|
+| `/start` | 从头播放 |
+| `/run` | 继续播放 |
+| `/stop` | 暂停（画面保留） |
+| `/end` | 结束并隐藏 |
